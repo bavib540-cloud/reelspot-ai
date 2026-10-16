@@ -6,6 +6,7 @@ import BestTimePage from './pages/BestTimePage'
 import ShotPlannerPage from './pages/ShotPlannerPage'
 import SavedPage from './pages/SavedPage'
 import PaymentPage from './pages/PaymentPage'
+import AdminPaymentsPage from './pages/AdminPaymentsPage'
 
 const BottomNav: React.FC = () => {
   const loc = useLocation()
@@ -14,7 +15,7 @@ const BottomNav: React.FC = () => {
     { to: '/ideas', label: 'Reel Ideas' },
     { to: '/best-time', label: 'Best Time' },
     { to: '/planner', label: 'Shot Planner' },
-    { to: '/saved', label: 'Saved' },
+    { to: '/saved', label: 'Saved' }
   ]
   return (
     <nav className="bottom-nav">
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/planner" element={<ShotPlannerPage />} />
         <Route path="/saved" element={<SavedPage />} />
         <Route path="/billing" element={<PaymentPage user={null} />} />
+        <Route path="/admin" element={<AdminPaymentsPage />} />
       </Routes>
       <BottomNav />
     </div>
