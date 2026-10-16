@@ -12,7 +12,8 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.14.1",
     "@supabase/supabase-js": "^2.33.0",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "qrcode": "^1.5.1"
   },
   "devDependencies": {
     "typescript": "^5.4.2",
