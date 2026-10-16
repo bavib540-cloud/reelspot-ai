@@ -1,21 +1,13 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import { buildLocalIdeas, generateReelIdeas, type ReelIdeaForm } from '../lib/reelIdeas'
 
 const LANGUAGES = ['Tamil', 'English', 'Hindi', 'Kannada']
 const GENRES = ['Horror', 'Cinematic', 'Funny', 'Mysterious', 'Emotional', 'Aesthetic', 'Educational']
 const DURATIONS = [15, 30, 45, 60]
 const MOODS = ['scary', 'cinematic', 'funny', 'mysterious', 'emotional', 'aesthetic', 'educational']
 
-type IdeaForm = {
-  genre: string
-  duration: number
-  location: string
-  people: number
-  equipment: string
-  mood: string
-  language: string
-}
-
-const defaultForm: IdeaForm = {
+const defaultForm: ReelIdeaForm = {
   genre: 'Horror',
   duration: 30,
   location: 'Marina Beach Access',
@@ -25,71 +17,49 @@ const defaultForm: IdeaForm = {
   language: 'Tamil'
 }
 
-function createIdea(form: IdeaForm, index: number) {
-  const hooks = {
-    Horror: ['A silent knock at the door you didn’t hear before.', 'A shadow passes behind the glass and never moves back.', 'The camera hears a whisper before the character does.'],
-    Cinematic: ['A city skyline fades into a restless emotional close-up.', 'A single frame holds the whole story before the cut.', 'The sound drops before the reveal hits.'],
-    Funny: ['Everything is normal until the camera catches the best fail.', 'The joke starts with one look and ends in chaos.', 'What looked like a setup became a perfect disaster.'],
-    Mysterious: ['A forgotten object appears where it should never be.', 'Someone says your name before the shot even turns.', 'The frame feels wrong before you understand why.'],
-    Emotional: ['A tiny ordinary detail becomes the whole memory.', 'The silence speaks louder than the dialogue.', 'The final shot stays on the face longer than the moment needs.'],
-    Aesthetic: ['Every colour feels like it was waiting for this frame.', 'Motion is the mood, stillness is the message.', 'The place becomes the character before the person speaks.'],
-    Educational: ['One detail changes the entire story in under ten seconds.', 'The real lesson is hidden inside the process.', 'A quick visual cue explains everything in a single frame.']
-  }
-
-  const conceptTitles = {
-    Horror: ['The Last Knock', 'From Under the Door', 'No One Turned Around'],
-    Cinematic: ['Afterglow', 'The Silence Before', 'Still Frame'],
-    Funny: ['The Great Plan', 'The Wrong Angle', 'One Perfect Mistake'],
-    Mysterious: ['Whispers in the Hall', 'The Missing Frame', 'The Door That Wasn’t There'],
-    Emotional: ['The Smallest Goodbye', 'Held in the Moment', 'A Memory That Stayed'],
-    Aesthetic: ['Colour in Motion', 'Glass and Light', 'A Quiet View'],
-    Educational: ['One Trick, One Story', 'What's Hidden in the Frame?', 'The Process in 30 Seconds']
-  }
-
-  const locationMap = {
-    'Marina Beach Access': 'Beaches and waterfronts',
-    'Rose Garden Walk': 'Gardens and parks',
-    'Heritage Courtyard': 'Historic architecture',
-    'Street Art Lane': 'Colorful walls and street art',
-    'Forest Pond Path': 'Forests and nature',
-    'Authorized Rooftop Terrace': 'Rooftop-style scenery where access is authorized'
-  }
-
-  const moodSound = {
-    scary: 'Low drone + soft wind + distant metallic rattle',
-    cinematic: 'Wide ambient strings + soft low percussion',
-    funny: 'Punchy foley + light rhythmic beat',
-    mysterious: 'Sub-bass + subtle suspense textures',
-    emotional: 'Gentle piano + breathy pad',
-    aesthetic: 'Dreamy synth + soft percussion',
-    educational: 'Clean natural sound + light rhythmic cue'
-  }
-
-  const hook = hooks[form.genre as keyof typeof hooks][index % hooks[form.genre as keyof typeof hooks].length]
-  const title = conceptTitles[form.genre as keyof typeof conceptTitles][index % conceptTitles[form.genre as keyof typeof conceptTitles].length]
-
-  return {
-    title,
-    hook,
-    storyline: `A ${form.people}-person team films a ${form.duration}-second ${form.genre.toLowerCase()} sequence at ${form.location}. The scene opens with ${hook.toLowerCase()} The pacing builds with ${form.equipment} footage and a ${form.mood} mood, ending with a memorable final beat that makes the viewer want the next clip.`,
-    locationCategory: locationMap[form.location as keyof typeof locationMap] || form.location,
-    sound: moodSound[form.mood as keyof typeof moodSound] || moodSound.cinematic,
-    camera: ['Slow push-in', 'Low-angle reveal', 'Wide establishing shot', 'Handheld close-up'][index % 4],
-    editing: ['Match cut on motion', 'Short tension rhythm', 'Text intrusion at the reveal', 'Cut on sound cue'][index % 4],
-    caption: [`${form.genre} mood, ${form.language} energy`, `Watch this full shot`, `Mini-story, major impact`][index % 3],
-    hashtags: ['#ReelSpotAI', '#ShortFormStory', '#CreatorLife', '#Filmmaking', '#UrbanVisuals', '#Storytelling'][index % 6]
-  }
-}
-
 export default function ReelIdeasPage() {
-  const [form, setForm] = useState<IdeaForm>(defaultForm)
+  const [form, setForm] = useState<ReelIdeaForm>(defaultForm)
   const [concepts, setConcepts] = useState<any[]>([])
   const [status, setStatus] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [credits, setCredits] = useState<number | null>(null)
 
-  const generate = () => {
-    const next = Array.from({ length: 3 }, (_, idx) => createIdea(form, idx))
-    setConcepts(next)
-    setStatus('Three original concepts generated. Review them and send the one you like to the planner.')
+  useEffect(() => {
+    const loadCredits = async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const userId = sessionData.session?.user?.id
+      if (!userId) return
+      const { data } = await supabase.from('subscriptions').select('remaining_credits').eq('user_id', userId).limit(1)
+      if (data && data[0]) setCredits(data[0].remaining_credits)
+    }
+    loadCredits()
+  }, [])
+
+  const generate = async () => {
+    setLoading(true)
+    setStatus('Generating concepts...')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      const result = await generateReelIdeas(form, accessToken)
+      setConcepts(result.ideas)
+      setStatus(result.message || 'Three original concepts generated. Review and save the idea you like.')
+      const nextCredits = await getCurrentCredits()
+      setCredits(nextCredits)
+    } catch (error: any) {
+      setStatus(error.message || 'Generation failed.')
+      setConcepts(buildLocalIdeas(form))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getCurrentCredits = async () => {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const userId = sessionData.session?.user?.id
+    if (!userId) return null
+    const { data } = await supabase.from('subscriptions').select('remaining_credits').eq('user_id', userId).limit(1)
+    return data && data[0] ? data[0].remaining_credits : null
   }
 
   const saveSelected = (idea: any) => {
@@ -102,6 +72,7 @@ export default function ReelIdeasPage() {
   return (
     <div className="page p-4">
       <h1 className="title">Generate My Next Reel</h1>
+      {credits !== null && <div className="status-box">Remaining generations: {credits}</div>}
 
       <div className="form-grid">
         <label>
@@ -148,7 +119,7 @@ export default function ReelIdeasPage() {
         </label>
       </div>
 
-      <button className="btn" onClick={generate}>Generate My Next Reel</button>
+      <button className="btn" onClick={generate} disabled={loading}>{loading ? 'Generating...' : 'Generate My Next Reel'}</button>
       {status && <div className="status-box">{status}</div>}
 
       <div className="idea-grid">
