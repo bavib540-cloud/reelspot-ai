@@ -1,27 +1,29 @@
-### AI generation backend and secure credit enforcement
+### Route + AI backend upgrade
 
-I implemented a secure, server-side generation flow for Reel ideas with credit enforcement.
+I implemented the first two production steps:
 
-Files added
-- src/lib/reelIdeas.ts — client-side helper that calls the server endpoint when configured and falls back to a local generator when no AI API is configured.
-- supabase/functions/generateReelIdeas/index.ts — Edge Function that:
-  - requires Authentication via Bearer token,
-  - checks the current user's `subscriptions.remaining_credits` via the `consume_credit` RPC,
-  - only proceeds if the user still has credit,
-  - returns a generated idea set from a server-side fallback generator,
-  - keeps any real AI API keys off the front end.
+1) Real route rendering on the Discover map
+- The Discover page now fetches a real route from the OpenStreetMap Routing service (OSRM) when the user allows location access and a location is selected.
+- The map displays a live route polyline between the user location and the selected location.
+- Route mode buttons were added for driving, walking, and cycling.
+- The app still falls back gracefully when location access or routing is unavailable.
 
-How it works
-- Frontend `src/pages/ReelIdeasPage.tsx` now calls `generateReelIdeas(form, accessToken)`.
-- If `VITE_REEL_IDEAS_API_URL` is set, it calls the configured server endpoint with the current user access token.
-- If no endpoint is configured, it falls back to a local deterministic generator and shows an explicit message that the AI service is not configured.
-- The server function enforces credit deduction using the `consume_credit` SQL RPC before generating results.
+2) Real server-side AI generation with secure credit enforcement
+- The server-side Reel generation function now supports OpenAI (`OPENAI_API_KEY`) when configured.
+- If no external AI key is configured, it falls back to a deterministic local generator but clearly states the fallback.
+- The function keeps AI keys on the server only and still enforces the `consume_credit` RPC before generation.
+
+Files updated
+- src/pages/DiscoverPage.tsx
+- supabase/functions/generateReelIdeas/index.ts
 
 Required env vars
-- VITE_REEL_IDEAS_API_URL — full URL to the deployed `generateReelIdeas` Edge Function (optional).
-- SUPABASE_SERVICE_ROLE_KEY — must be set in the function environment for the server to enforce credits securely.
+- OPENAI_API_KEY (server-side only; not in frontend)
+- SUPABASE_SERVICE_ROLE_KEY
+- VITE_REEL_IDEAS_API_URL (if you deploy the function and want the frontend to call it)
 
-Important: any real AI provider (OpenAI/Gemini/etc.) should be configured inside the server function only.
-Do not place API keys in the frontend code.
+What this does
+- Live map route: `https://router.project-osrm.org/...` is used, which does not require an API key for basic route generation.
+- Secure AI generation: the server calls OpenAI if configured, otherwise uses a local fallback.
 
-This implementation is secure-by-default for credits, and the UI remains usable in the absence of an AI provider by using the local fallback generator.
+This keeps the app functional without exposing secrets while also supporting real production-ready services when configured.

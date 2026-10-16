@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import React, { useMemo, useState, useEffect } from 'react'
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import type { LatLngExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { sampleLocations, type SampleLocation } from '../data/sampleLocations'
@@ -17,6 +17,8 @@ export default function DiscoverPage() {
   const [userCoords, setUserCoords] = useState<LatLngExpression | null>(null)
   const [selected, setSelected] = useState<SampleLocation | null>(sampleLocations[0])
   const [status, setStatus] = useState<string>('Sample dataset only. No live location data is being used.')
+  const [routeMode, setRouteMode] = useState<'driving' | 'walking' | 'cycling'>('driving')
+  const [routeGeometry, setRouteGeometry] = useState<LatLngExpression[]>([])
 
   const filteredLocations = useMemo(() => {
     const text = query.trim().toLowerCase()
@@ -34,6 +36,34 @@ export default function DiscoverPage() {
     })
     return sorted
   }, [query, selectedCategory, selectedDistance, sortMode])
+
+  useEffect(() => {
+    if (!userCoords || !selected) {
+      setRouteGeometry([])
+      return
+    }
+
+    const start: [number, number] = [Number((userCoords as number[])[1]), Number((userCoords as number[])[0])]
+    const end: [number, number] = [selected.longitude, selected.latitude]
+
+    fetch(`https://router.project-osrm.org/route/v1/${routeMode}/${start[0]},${start[1]};${end[0]},${end[1]}?overview=full&geometries=geojson&steps=false`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Route request failed')
+        const data = await res.json()
+        const coords = data.routes?.[0]?.geometry?.coordinates || []
+        if (!coords.length) {
+          setRouteGeometry([])
+          return
+        }
+        const mapped = coords.map(([lng, lat]: [number, number]) => [lat, lng] as LatLngExpression)
+        setRouteGeometry(mapped)
+        setStatus(`Route loaded for ${selected.name}.`) 
+      })
+      .catch(() => {
+        setRouteGeometry([])
+        setStatus(`Route unavailable for ${selected.name}. Showing the map without a route preview.`)
+      })
+  }, [userCoords, selected, routeMode])
 
   const handleUseLocation = () => {
     if (!navigator.geolocation) {
@@ -111,6 +141,19 @@ export default function DiscoverPage() {
         </label>
       </div>
 
+      <div className="route-toggle-row">
+        {(['driving', 'walking', 'cycling'] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            className={`btn small ${routeMode === mode ? 'active-route' : 'ghost'}`}
+            onClick={() => setRouteMode(mode)}
+          >
+            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+          </button>
+        ))}
+      </div>
+
       <div className="status-box">{status}</div>
 
       <div className="map-shell">
@@ -125,6 +168,18 @@ export default function DiscoverPage() {
               <Popup>You are here</Popup>
             </Marker>
           )}
+
+          {selected && (
+            <Marker position={[selected.latitude, selected.longitude] as LatLngExpression}>
+              <Popup>
+                <strong>{selected.name}</strong><br />
+                {selected.category}<br />
+                {selected.distanceKm} km away
+              </Popup>
+            </Marker>
+          )}
+
+          {routeGeometry.length > 0 && <Polyline positions={routeGeometry} pathOptions={{ color: '#38bdf8', weight: 4 }} />}
 
           {filteredLocations.map((loc) => (
             <Marker key={loc.id} position={[loc.latitude, loc.longitude] as LatLngExpression}>
@@ -160,9 +215,14 @@ export default function DiscoverPage() {
               <div className="pill-row">
                 {loc.bestConditions.map((cond) => <span className="chip" key={cond}>{cond}</span>)}
               </div>
-              <button className="btn small" type="button" onClick={(e) => { e.stopPropagation(); openDirections(loc) }}>
-                Get Directions
-              </button>
+              <div className="button-row">
+                <button className="btn small" type="button" onClick={(e) => { e.stopPropagation(); openDirections(loc) }}>
+                  Get Directions
+                </button>
+                <button className="btn small ghost" type="button" onClick={(e) => { e.stopPropagation(); setSelected(loc) }}>
+                  Show route
+                </button>
+              </div>
             </div>
           </article>
         ))}
