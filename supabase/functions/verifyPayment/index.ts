@@ -1,6 +1,3 @@
-// verifyPayment function (Supabase Edge Function style - TypeScript)
-// This file is a template. Deploy this function using Supabase Functions or adapt to your server.
-
 import { serve } from 'std/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -10,9 +7,27 @@ const supabase = createClient(SUPA_URL, SUPA_KEY)
 
 serve(async (req) => {
   try {
+    // Authenticate caller via Authorization: Bearer <access_token>
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.replace('Bearer ', '')
+    if (!token) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token)
+    if (userErr || !userData?.user) return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 })
+    const callerId = userData.user.id
+
+    // Check profiles.is_admin
+    const { data: profiles, error: profileErr } = await supabase.from('profiles').select('is_admin').eq('id', callerId).limit(1)
+    if (profileErr) {
+      console.error('profile lookup error', profileErr)
+      return new Response(JSON.stringify({ error: 'profile_lookup_failed' }), { status: 500 })
+    }
+    const isAdmin = profiles?.[0]?.is_admin
+    if (!isAdmin) return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })
+
     const body = await req.json()
-    const { payment_id, admin_id, plan } = body
-    if (!payment_id || !admin_id || !plan) return new Response(JSON.stringify({ error: 'missing' }), { status: 400 })
+    const { payment_id, plan } = body
+    if (!payment_id || !plan) return new Response(JSON.stringify({ error: 'missing' }), { status: 400 })
 
     // Find payment
     const { data: payments } = await supabase.from('payments').select('*').eq('id', payment_id).limit(1)
@@ -20,7 +35,7 @@ serve(async (req) => {
     if (!payment) return new Response(JSON.stringify({ error: 'not_found' }), { status: 404 })
 
     // Mark payment verified
-    await supabase.from('payments').update({ status: 'verified', verified_by: admin_id, verified_at: new Date().toISOString() }).eq('id', payment_id)
+    await supabase.from('payments').update({ status: 'verified', verified_by: callerId, verified_at: new Date().toISOString() }).eq('id', payment_id)
 
     // Determine allowance from plan
     const allowances: Record<string, number> = { creator_pro: 20, creator_plus: 50, free: 2 }
@@ -29,6 +44,7 @@ serve(async (req) => {
     // Upsert subscription
     const ends = new Date()
     ends.setMonth(ends.getMonth() + 1)
+
     await supabase.from('subscriptions').upsert({ user_id: payment.user_id, plan, status: 'active', started_at: new Date().toISOString(), ends_at: ends.toISOString(), monthly_allowance: allowance, remaining_credits: allowance }, { onConflict: 'user_id' })
 
     // Grant credits in audit

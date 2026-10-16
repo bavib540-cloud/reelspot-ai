@@ -1,25 +1,26 @@
-### Admin verification and signed-proof preview
+### Admin setup and hardening
 
-I added an Admin Payments page and a server Edge Function to fetch signed URLs for uploaded payment proofs.
+I added server-side admin authentication checks for the payment admin functions. To use the admin endpoints safely, follow these steps.
 
-Files added
-- src/pages/AdminPaymentsPage.tsx — Admin UI to list pending payments, preview uploaded proofs, and verify payments (select plan to grant).
-- supabase/functions/getProofUrl/index.ts — Supabase Edge Function to return a signed URL for a given proof_path (uses service role key; deploy this function to your Supabase project).
-- supabase/migrations/consume_credit.sql — A PL/pgSQL RPC function to atomically consume an AI generation credit for a user.
+1) Create a profiles table (migration included):
 
-Environment variables
-- VITE_VERIFY_PAYMENT_FN — full URL to your deployed verifyPayment Edge Function (e.g. https://<project>.supabase.co/functions/v1/verifyPayment)
-- VITE_GET_PROOF_FN — full URL to the getProofUrl Edge Function (e.g. https://<project>.supabase.co/functions/v1/getProofUrl)
+Run the SQL file `supabase/migrations/create_profiles.sql` in your Supabase project's SQL editor. It creates a `profiles` table with an `is_admin` boolean flag.
 
-How AdminPaymentsPage works
-1. It reads pending payments from the `payments` table (status = 'pending').
-2. Admin clicks "Preview proof" — the page calls VITE_GET_PROOF_FN with { proof_path } which returns a signed URL to preview the image.
-3. Admin chooses a plan (Creator Pro / Creator Plus) and clicks "Verify" — the page POSTs to VITE_VERIFY_PAYMENT_FN with { payment_id, admin_id, plan }.
-4. The verifyPayment function updates the payments table, upserts subscriptions, and inserts a generation_credits entry.
+2) Mark an admin user
 
-Deploy the Edge Functions
-- Deploy both verifyPayment and getProofUrl to Supabase Functions. They must run with SUPABASE_SERVICE_ROLE_KEY set in the function environment.
+Use the Supabase SQL editor or dashboard to set a user as admin. Example:
 
-Security notes
-- Only deploy these admin endpoints if you secure access via Supabase Auth or network rules. The Edge Functions use the service role key and must be protected (call only from trusted admin sessions or via server-side checks).
-- In Production, ensure only admin users can call verifyPayment. The current verifyPayment function expects an admin_id and trusts it; you should add server-side admin validation (e.g., check that admin_id belongs to a user with an `is_admin` flag in your users table) before marking payments verified.
+```
+update profiles set is_admin = true where id = '<user-uuid>';
+```
+
+3) How the admin endpoints work now
+
+- Both the `verifyPayment` and `getProofUrl` Edge Functions require an Authorization header with a valid Supabase user access token: `Authorization: Bearer <access_token>`.
+- The functions validate the token, look up the caller's `profiles.is_admin` flag, and only proceed if the caller is an admin.
+- The frontend Admin page (`src/pages/AdminPaymentsPage.tsx`) now automatically includes the current user's access token when calling these functions. You must be signed in and have `is_admin = true` in `profiles` to use the page.
+
+4) Security reminders
+
+- Keep `SUPABASE_SERVICE_ROLE_KEY` secret and only used in Edge Functions or server-side code.
+- Do not rely on client-side admin indications — the server enforces admin privileges.

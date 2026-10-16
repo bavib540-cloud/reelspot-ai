@@ -7,6 +7,24 @@ const supabase = createClient(SUPA_URL, SUPA_KEY)
 
 serve(async (req) => {
   try {
+    // Authenticate caller via Authorization: Bearer <access_token>
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.replace('Bearer ', '')
+    if (!token) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token)
+    if (userErr || !userData?.user) return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 })
+    const callerId = userData.user.id
+
+    // Check profiles.is_admin
+    const { data: profiles, error: profileErr } = await supabase.from('profiles').select('is_admin').eq('id', callerId).limit(1)
+    if (profileErr) {
+      console.error('profile lookup error', profileErr)
+      return new Response(JSON.stringify({ error: 'profile_lookup_failed' }), { status: 500 })
+    }
+    const isAdmin = profiles?.[0]?.is_admin
+    if (!isAdmin) return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })
+
     const body = await req.json()
     const { proof_path } = body
     if (!proof_path) return new Response(JSON.stringify({ error: 'missing_proof_path' }), { status: 400 })
