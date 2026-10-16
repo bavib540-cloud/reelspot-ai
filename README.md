@@ -1,19 +1,25 @@
-### Dynamic UPI QR generation
+### Admin verification and signed-proof preview
 
-This project now supports dynamic UPI QR generation in the Billing page. Instead of committing a static QR image to the repository, the app builds a UPI intent URI (upi://pay?pa=...) from the provided UPI ID, payee name, amount, and note and renders a QR client-side using the `qrcode` npm package.
+I added an Admin Payments page and a server Edge Function to fetch signed URLs for uploaded payment proofs.
 
-How it works
-- The Billing page constructs a UPI URI and generates a PNG data URL for the QR entirely in the browser using the `qrcode` library.
-- Users can scan the generated QR with any UPI app or click "Open in UPI app" (which uses the custom URI scheme). Note: some browsers restrict launching custom schemes.
-- The app still supports uploading payment proof (screenshot) and submitting a pending payment record to Supabase for manual verification.
+Files added
+- src/pages/AdminPaymentsPage.tsx — Admin UI to list pending payments, preview uploaded proofs, and verify payments (select plan to grant).
+- supabase/functions/getProofUrl/index.ts — Supabase Edge Function to return a signed URL for a given proof_path (uses service role key; deploy this function to your Supabase project).
+- supabase/migrations/consume_credit.sql — A PL/pgSQL RPC function to atomically consume an AI generation credit for a user.
 
-Security & privacy
-- No private payment images are committed to the repo.
-- If you later integrate an automated gateway (Razorpay/Cashfree/Paytm), use server-side webhooks for verification and keep secret keys in environment variables.
+Environment variables
+- VITE_VERIFY_PAYMENT_FN — full URL to your deployed verifyPayment Edge Function (e.g. https://<project>.supabase.co/functions/v1/verifyPayment)
+- VITE_GET_PROOF_FN — full URL to the getProofUrl Edge Function (e.g. https://<project>.supabase.co/functions/v1/getProofUrl)
 
-To use
-1. Ensure dependencies are installed (npm install) including `qrcode`.
-2. Start the app and visit /billing.
-3. Enter amount and note if needed, scan or open the UPI URI, then optionally upload proof.
+How AdminPaymentsPage works
+1. It reads pending payments from the `payments` table (status = 'pending').
+2. Admin clicks "Preview proof" — the page calls VITE_GET_PROOF_FN with { proof_path } which returns a signed URL to preview the image.
+3. Admin chooses a plan (Creator Pro / Creator Plus) and clicks "Verify" — the page POSTs to VITE_VERIFY_PAYMENT_FN with { payment_id, admin_id, plan }.
+4. The verifyPayment function updates the payments table, upserts subscriptions, and inserts a generation_credits entry.
 
-If you want, I can also implement a server-side QR generation endpoint (for downloadable PNGs from the server) or integrate a specific payment gateway for automatic verification. Let me know which you prefer.
+Deploy the Edge Functions
+- Deploy both verifyPayment and getProofUrl to Supabase Functions. They must run with SUPABASE_SERVICE_ROLE_KEY set in the function environment.
+
+Security notes
+- Only deploy these admin endpoints if you secure access via Supabase Auth or network rules. The Edge Functions use the service role key and must be protected (call only from trusted admin sessions or via server-side checks).
+- In Production, ensure only admin users can call verifyPayment. The current verifyPayment function expects an admin_id and trusts it; you should add server-side admin validation (e.g., check that admin_id belongs to a user with an `is_admin` flag in your users table) before marking payments verified.
